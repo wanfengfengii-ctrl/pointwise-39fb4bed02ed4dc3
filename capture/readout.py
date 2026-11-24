@@ -18,16 +18,10 @@ class Readout:
         self.dispatch = _deliver_now if dispatch is None else dispatch
 
     def _copy(self, attempt, exposure, side):
-        loan = self.pages.acquire_loan(exposure.page, exposure)
-        if loan is None:
+        value = self.pages.read_exposure_half(exposure, side)
+        if value is None:
             return None
-        try:
-            value = self.pages.read_half(exposure.page, side, loan)
-            if value is None:
-                return None
-            return make_half_reading(attempt.request_id, attempt.attempt_id, exposure, side, value)
-        finally:
-            self.pages.release_loan(loan)
+        return make_half_reading(attempt.request_id, attempt.attempt_id, exposure, side, value)
 
     def _read(self, attempt, deliver):
         before = self.pages.find_complete_page(attempt.lot_id, attempt.trigger_id)
@@ -42,7 +36,8 @@ class Readout:
             if self.after_copy is not None:
                 self.after_copy(reading)
             self.dispatch(reading, deliver)
-        if self.pages.observe(exposure.page) != before:
+        if self.pages.observe(exposure.page).complete != exposure \
+                and not self.pages.trial_superseded(exposure):
             return attempt.invalidate('exposure_changed')
         return attempt.qualify(exposure)
 

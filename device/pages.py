@@ -4,6 +4,7 @@ from threading import RLock
 from device.exposures import Exposure
 from device.loans import LoanBook
 from device.storage import DeviceStore
+from work.shifts import require_id
 
 
 @dataclass(frozen=True)
@@ -49,24 +50,52 @@ class PageBank:
                 raise ValueError('short read loan is inactive or belongs to another page')
             return self.store.load_half(page, side)
 
+    def read_exposure_half(self, exposure, side):
+        with self._lock:
+            return self.store.load_retained_half(exposure.write_id, side)
+
+    def trial_superseded(self, exposure):
+        with self._lock:
+            return self.store.was_trial_superseded(exposure.write_id)
+
     def start_write(self, lot_id, trigger_id, exposure_id):
         with self._lock:
             recent = self.store.latest_page()
             preferred = 0 if recent is None else 1 - recent
             stamps = self._stamps()
+            trialing = self.store.pending_trial_pages()
             for page in (preferred, 1 - preferred):
-                if stamps[page].active is None and not self._loans.is_pinned(page):
+                if stamps[page].active is None and not self._loans.is_pinned(page) and page not in trialing:
                     return self.store.begin_write(page, lot_id, trigger_id, exposure_id)
             raise PageBusy('both recording pages are writing or pinned')
 
+    def begin_trial(self, trial_id, original_write_id, exposure_id):
+        require_id(trial_id, 'trial_id')
+        require_id(exposure_id, 'exposure_id')
+        if type(original_write_id) is not int or original_write_id <= 0:
+            raise ValueError('original_write_id must be a positive integer write_id')
+        with self._lock:
+            return self.store.begin_trial(trial_id, original_write_id, exposure_id)
+
+    def confirm_trial(self, trial_id):
+        require_id(trial_id, 'trial_id')
+        with self._lock:
+            return self.store.confirm_trial(trial_id)
+
+    def abandon_trial(self, trial_id):
+        require_id(trial_id, 'trial_id')
+        with self._lock:
+            return self.store.abandon_trial(trial_id)
+
     def write_half(self, exposure, side, value):
         with self._lock:
-            if self.observe(exposure.page).active != exposure:
-                raise ValueError('half does not belong to the active exposure')
             self.store.put_half(exposure, side, value)
 
     def finish_write(self, exposure):
         with self._lock:
+            if self.store.is_trial_write(exposure):
+                self.store.finish_trial(exposure)
+                return
             if self.observe(exposure.page).active != exposure:
                 raise ValueError('completion does not belong to the active exposure')
             self.store.complete_write(exposure)
