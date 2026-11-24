@@ -1,0 +1,9 @@
+{
+  "shift_id": "S1",
+  "lot_id": "L1",
+  "triggers": ["T1", "T2"],
+  "threshold_um": 10,
+  "old": {"trigger": "T1", "exposure": "F7", "left": 7, "right": 11},
+  "neighbor": {"trigger": "T2", "exposure": "N1", "left": 2, "right": 3},
+  "new": {"trigger": "T1", "exposure": "F8", "left": 13, "right": 19}
+}
